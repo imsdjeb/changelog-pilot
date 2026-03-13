@@ -224,6 +224,33 @@ assert_valid_json "freeform output" "$OUTPUT2"
 assert_json_field "freeform style" "$OUTPUT2" '.commitStyle' "freeform"
 
 # ============================================
+# Test 4b: Unicode gitmoji detection
+# ============================================
+echo ""
+echo "  -- Unicode Gitmoji Detection ------------------"
+
+TMPDIR_EMOJI=$(mktemp -d)
+cleanup_emoji() { rm -rf "$TMPDIR_EMOJI"; }
+trap cleanup_emoji EXIT
+
+(
+  cd "$TMPDIR_EMOJI"
+  git init -q
+  git config user.email "test@test.com"
+  git config user.name "Test"
+  echo "init" > file.txt && git add file.txt && git commit -q -m "initial commit"
+  git tag v1.0.0
+  echo "a" >> file.txt && git add file.txt && git commit -q -m $'✨ add sparkles feature'
+  echo "b" >> file.txt && git add file.txt && git commit -q -m $'🐛 fix bug in parser'
+  echo "c" >> file.txt && git add file.txt && git commit -q -m $'🔥 remove deprecated code'
+)
+
+OUTPUT_EMOJI=$(cd "$TMPDIR_EMOJI" && bash "$DETECT_SCRIPT" 2>/dev/null)
+assert_valid_json "unicode gitmoji output" "$OUTPUT_EMOJI"
+assert_json_field "gitmoji style detected" "$OUTPUT_EMOJI" '.commitStyle' "gitmoji"
+assert_json_field "gitmoji commit count" "$OUTPUT_EMOJI" '.commitCount' "3"
+
+# ============================================
 # Test 5: Special characters in commit messages
 # ============================================
 echo ""

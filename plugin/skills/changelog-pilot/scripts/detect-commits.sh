@@ -56,7 +56,7 @@ while IFS= read -r msg; do
 
   # Check for Gitmoji pattern: starts with an emoji (portable — no grep -P)
   # Detect common gitmoji Unicode byte patterns and :shortcode: syntax
-  if echo "$msg" | perl -ne 'exit 0 if /^[\x{2600}-\x{27BF}\x{1F300}-\x{1FBFF}\x{FE00}-\x{FE0F}\x{200D}\x{E0020}-\x{E007F}]/; exit 1' 2>/dev/null \
+  if echo "$msg" | perl -CSD -ne 'exit 0 if /^[\x{2600}-\x{27BF}\x{1F300}-\x{1FBFF}\x{FE00}-\x{FE0F}\x{200D}\x{E0020}-\x{E007F}]/; exit 1' 2>/dev/null \
      || echo "$msg" | grep -qE '^:[a-z_]+:' 2>/dev/null; then
     GITMOJI_COUNT=$((GITMOJI_COUNT + 1))
   fi
