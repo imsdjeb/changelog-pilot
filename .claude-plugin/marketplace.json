@@ -1,0 +1,18 @@
+{
+  "name": "imsdjeb-changelog-pilot",
+  "owner": {
+    "name": "Imad"
+  },
+  "metadata": {
+    "description": "Plugins by Imad",
+    "homepage": "https://github.com/imsdjeb/changelog-pilot"
+  },
+  "plugins": [
+    {
+      "name": "changelog-pilot",
+      "version": "1.0.0",
+      "source": "./plugin",
+      "description": "Full release orchestrator for Claude Code. Analyzes commits, generates human-readable changelogs, calculates semver bumps, creates tags, publishes GitHub releases."
+    }
+  ]
+}
