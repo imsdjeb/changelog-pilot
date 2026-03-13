@@ -4,25 +4,28 @@ set -euo pipefail
 # changelog-pilot version detection script
 # Finds current version across all manifest files
 
+# --- Require jq ---
+if ! command -v jq &>/dev/null; then
+  echo '{"error":"jq is required but not installed. Install it: https://jqlang.github.io/jq/download/"}' >&2
+  exit 1
+fi
+
 CURRENT_VERSION=""
 VERSION_SOURCE=""
-ALL_VERSION_FILES="[]"
 
-FILES_FOUND=""
+# Accumulate version files as a JSON array
+VERSION_FILES="[]"
 
-# --- Helper: add to files list ---
+# --- Helper: add to version files list ---
 add_file() {
   local file="$1"
   local version="$2"
-  if [ -n "$FILES_FOUND" ]; then
-    FILES_FOUND="$FILES_FOUND,"
-  fi
-  FILES_FOUND="$FILES_FOUND{\"file\":\"$file\",\"version\":\"$version\"}"
+  VERSION_FILES=$(echo "$VERSION_FILES" | jq --arg f "$file" --arg v "$version" '. + [{file:$f, version:$v}]')
 }
 
-# --- package.json ---
+# --- package.json (use jq for safe parsing) ---
 if [ -f "package.json" ]; then
-  VER=$(grep '"version"' package.json 2>/dev/null | head -1 | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]*)".*$/\1/')
+  VER=$(jq -r '.version // empty' package.json 2>/dev/null || true)
   if [ -n "$VER" ]; then
     add_file "package.json" "$VER"
     if [ -z "$CURRENT_VERSION" ]; then
@@ -32,9 +35,9 @@ if [ -f "package.json" ]; then
   fi
 fi
 
-# --- package-lock.json (root version) ---
+# --- package-lock.json (use jq for safe parsing) ---
 if [ -f "package-lock.json" ]; then
-  VER=$(grep -m1 '"version"' package-lock.json 2>/dev/null | head -1 | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]*)".*$/\1/')
+  VER=$(jq -r '.version // empty' package-lock.json 2>/dev/null || true)
   if [ -n "$VER" ]; then
     add_file "package-lock.json" "$VER"
   fi
@@ -100,6 +103,19 @@ if [ -f "setup.cfg" ]; then
   fi
 fi
 
+# --- Python __init__.py with __version__ ---
+for init_file in */__init__.py; do
+  [ -f "$init_file" ] || continue
+  VER=$(grep -E '^__version__' "$init_file" 2>/dev/null | head -1 | sed -E "s/^__version__[[:space:]]*=[[:space:]]*['\"]([^'\"]*)['\"].*/\1/")
+  if [ -n "$VER" ]; then
+    add_file "$init_file" "$VER"
+    if [ -z "$CURRENT_VERSION" ]; then
+      CURRENT_VERSION="$VER"
+      VERSION_SOURCE="$init_file"
+    fi
+  fi
+done
+
 # --- *.gemspec ---
 for gemspec in *.gemspec; do
   [ -f "$gemspec" ] || continue
@@ -142,20 +158,76 @@ if [ -f "Directory.Build.props" ]; then
   fi
 fi
 
+# --- pom.xml (Maven) ---
+if [ -f "pom.xml" ]; then
+  # Extract the top-level <version> (first occurrence, usually project version)
+  VER=$(sed -n '/<parent>/,/<\/parent>/!{ s/.*<version>\([^<]*\)<\/version>.*/\1/p; }' pom.xml 2>/dev/null | head -1)
+  if [ -n "$VER" ]; then
+    add_file "pom.xml" "$VER"
+    if [ -z "$CURRENT_VERSION" ]; then
+      CURRENT_VERSION="$VER"
+      VERSION_SOURCE="pom.xml"
+    fi
+  fi
+fi
+
+# --- build.gradle / build.gradle.kts ---
+for gradle_file in build.gradle build.gradle.kts; do
+  [ -f "$gradle_file" ] || continue
+  VER=$(grep -E "^version" "$gradle_file" 2>/dev/null | head -1 | sed -E "s/^version[[:space:]]*=[?[[:space:]]*['\"]([^'\"]*)['\"].*/\1/")
+  if [ -n "$VER" ]; then
+    add_file "$gradle_file" "$VER"
+    if [ -z "$CURRENT_VERSION" ]; then
+      CURRENT_VERSION="$VER"
+      VERSION_SOURCE="$gradle_file"
+    fi
+  fi
+done
+
+# --- Package.swift ---
+if [ -f "Package.swift" ]; then
+  # Look for a version comment or .library(name:..., version:...) pattern
+  VER=$(grep -E 'version:' Package.swift 2>/dev/null | head -1 | sed -E "s/.*version:[[:space:]]*['\"]([^'\"]*)['\"].*/\1/" || true)
+  if [ -n "$VER" ] && echo "$VER" | grep -qE '^[0-9]+\.[0-9]+'; then
+    add_file "Package.swift" "$VER"
+    if [ -z "$CURRENT_VERSION" ]; then
+      CURRENT_VERSION="$VER"
+      VERSION_SOURCE="Package.swift"
+    fi
+  fi
+fi
+
 # --- Fallback: git tag ---
 if [ -z "$CURRENT_VERSION" ]; then
-  TAG_VER=$(git tag --sort=-v:refname 2>/dev/null | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//')
+  TAG_VER=$(git tag --sort=-v:refname 2>/dev/null | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/^v//' || true)
   if [ -n "$TAG_VER" ]; then
     CURRENT_VERSION="$TAG_VER"
     VERSION_SOURCE="git-tag"
   fi
 fi
 
-# --- Output ---
-cat <<EOF
-{
-  "currentVersion": "$CURRENT_VERSION",
-  "versionSource": "$VERSION_SOURCE",
-  "allVersionFiles": [$FILES_FOUND]
-}
-EOF
+# --- Detect version conflicts ---
+# Collect unique versions from all version files (excluding lock files)
+CONFLICTS="[]"
+if [ "$(echo "$VERSION_FILES" | jq 'length')" -gt 1 ]; then
+  UNIQUE_VERSIONS=$(echo "$VERSION_FILES" | jq -r '
+    [.[] | select(.file | test("lock|Lock") | not)] |
+    [.[].version] | unique | length
+  ')
+  if [ "$UNIQUE_VERSIONS" -gt 1 ]; then
+    CONFLICTS=$(echo "$VERSION_FILES" | jq '[.[] | select(.file | test("lock|Lock") | not)]')
+  fi
+fi
+
+# --- Output (using jq for safe encoding) ---
+jq -n \
+  --arg version "$CURRENT_VERSION" \
+  --arg source "$VERSION_SOURCE" \
+  --argjson files "$VERSION_FILES" \
+  --argjson conflicts "$CONFLICTS" \
+  '{
+    currentVersion: $version,
+    versionSource: $source,
+    allVersionFiles: $files,
+    conflicts: $conflicts
+  }'

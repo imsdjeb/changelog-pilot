@@ -1,0 +1,8 @@
+[tool.poetry]
+name = "test-python"
+version = "3.1.0"
+description = "A test project"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

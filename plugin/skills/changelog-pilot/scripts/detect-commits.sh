@@ -4,10 +4,15 @@ set -euo pipefail
 # changelog-pilot commit detection script
 # Finds last tag, lists commits since, detects commit style
 
+# --- Require jq ---
+if ! command -v jq &>/dev/null; then
+  echo '{"error":"jq is required but not installed. Install it: https://jqlang.github.io/jq/download/"}' >&2
+  exit 1
+fi
+
 LAST_TAG=""
 COMMIT_COUNT=0
 COMMIT_STYLE="freeform"
-COMMITS_JSON="[]"
 
 # --- Find last semver tag ---
 LAST_TAG=$(git tag --sort=-v:refname 2>/dev/null | grep -E '^v?[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
@@ -29,7 +34,7 @@ fi
 COMMIT_COUNT=$(git rev-list --count "$RANGE" 2>/dev/null || echo "0")
 
 if [ "$COMMIT_COUNT" -eq 0 ]; then
-  echo "{\"lastTag\":\"$LAST_TAG\",\"commitCount\":0,\"commitStyle\":\"freeform\",\"commits\":[]}"
+  jq -n --arg tag "$LAST_TAG" '{lastTag:$tag,commitCount:0,commitStyle:"freeform",commits:[]}'
   exit 0
 fi
 
@@ -49,8 +54,10 @@ while IFS= read -r msg; do
     CONVENTIONAL_COUNT=$((CONVENTIONAL_COUNT + 1))
   fi
 
-  # Check for Gitmoji pattern: starts with an emoji
-  if echo "$msg" | grep -qP '^\p{So}|^\p{Emoji_Presentation}' 2>/dev/null || echo "$msg" | grep -qE '^:[a-z_]+:' 2>/dev/null; then
+  # Check for Gitmoji pattern: starts with an emoji (portable — no grep -P)
+  # Detect common gitmoji Unicode byte patterns and :shortcode: syntax
+  if echo "$msg" | perl -ne 'exit 0 if /^[\x{2600}-\x{27BF}\x{1F300}-\x{1FBFF}\x{FE00}-\x{FE0F}\x{200D}\x{E0020}-\x{E007F}]/; exit 1' 2>/dev/null \
+     || echo "$msg" | grep -qE '^:[a-z_]+:' 2>/dev/null; then
     GITMOJI_COUNT=$((GITMOJI_COUNT + 1))
   fi
 done <<< "$SAMPLE"
@@ -68,34 +75,25 @@ if [ "$TOTAL_SAMPLE" -gt 0 ]; then
   fi
 fi
 
-# --- List commits as JSON array ---
-COMMITS_JSON="["
-FIRST=true
+# --- List commits as JSON array (using jq for safe encoding) ---
+COMMITS_JSON="[]"
 
 while IFS='|' read -r hash subject author email date; do
   [ -z "$hash" ] && continue
 
-  # Escape JSON special characters in subject
-  subject=$(echo "$subject" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g')
-  author=$(echo "$author" | sed 's/\\/\\\\/g; s/"/\\"/g')
-
-  if [ "$FIRST" = true ]; then
-    FIRST=false
-  else
-    COMMITS_JSON="$COMMITS_JSON,"
-  fi
-
-  COMMITS_JSON="$COMMITS_JSON{\"hash\":\"$hash\",\"subject\":\"$subject\",\"author\":\"$author\",\"email\":\"$email\",\"date\":\"$date\"}"
+  COMMITS_JSON=$(echo "$COMMITS_JSON" | jq \
+    --arg h "$hash" \
+    --arg s "$subject" \
+    --arg a "$author" \
+    --arg e "$email" \
+    --arg d "$date" \
+    '. + [{hash:$h, subject:$s, author:$a, email:$e, date:$d}]')
 done < <(git log "$RANGE" --format="%H|%s|%an|%ae|%aI" 2>/dev/null)
 
-COMMITS_JSON="$COMMITS_JSON]"
-
-# --- Output ---
-cat <<EOF
-{
-  "lastTag": "$LAST_TAG",
-  "commitCount": $COMMIT_COUNT,
-  "commitStyle": "$COMMIT_STYLE",
-  "commits": $COMMITS_JSON
-}
-EOF
+# --- Output (using jq for safe encoding) ---
+jq -n \
+  --arg tag "$LAST_TAG" \
+  --argjson count "$COMMIT_COUNT" \
+  --arg style "$COMMIT_STYLE" \
+  --argjson commits "$COMMITS_JSON" \
+  '{lastTag:$tag, commitCount:$count, commitStyle:$style, commits:$commits}'
