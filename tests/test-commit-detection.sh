@@ -310,6 +310,43 @@ assert_valid_json "no tags output" "$OUTPUT4"
 assert_json_field "lastTag is (none)" "$OUTPUT4" '.lastTag' "(none)"
 assert_json_field "commits exist" "$OUTPUT4" '.commits | length' "1"
 
+# ============================================
+# Test 7: Regression — Pipe in Subject
+# ============================================
+echo ""
+echo "  -- Regression: Pipe in Subject -----------------"
+
+TMPDIR_PIPE=$(mktemp -d)
+cleanup_pipe() { rm -rf "$TMPDIR_PIPE"; }
+trap cleanup_pipe EXIT
+
+(
+  cd "$TMPDIR_PIPE"
+  git init -q
+  git config user.email "test@test.com"
+  git config user.name "Test"
+  echo "init" > file.txt && git add file.txt && git commit -q -m "initial commit"
+  git tag v1.0.0
+  echo "a" >> file.txt && git add file.txt && git commit -q -m "feat: handle a|b case"
+)
+
+OUTPUT_PIPE=$(cd "$TMPDIR_PIPE" && bash "$DETECT_SCRIPT" 2>/dev/null)
+assert_valid_json "pipe in subject output" "$OUTPUT_PIPE"
+
+# The subject must contain the pipe literally, not be garbled by field splitting
+PIPE_SUBJECT=$(echo "$OUTPUT_PIPE" | jq -r '.commits[0].subject')
+TOTAL=$((TOTAL + 1))
+if echo "$PIPE_SUBJECT" | grep -q 'a|b'; then
+  printf "  PASS %-36s\n" "pipe preserved in subject:"
+  PASS_COUNT=$((PASS_COUNT + 1))
+else
+  printf "  FAIL %-36s subject=%s\n" "pipe preserved in subject:" "$PIPE_SUBJECT"
+  FAIL_COUNT=$((FAIL_COUNT + 1))
+fi
+
+# The author must still be "Test", not a fragment of the subject
+assert_json_field "author not garbled" "$OUTPUT_PIPE" '.commits[0].author' "Test"
+
 echo ""
 echo "  =================================================="
 printf "  Results: %d/%d passed\n" "$PASS_COUNT" "$TOTAL"

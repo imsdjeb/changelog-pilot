@@ -153,6 +153,88 @@ run_test     "no-version"       ""             ""                "no version fie
 run_test     "pre-release"      "2.0.0-beta.1" "package.json"   "pre-release version"
 
 echo ""
+echo "  -- Regression: Version Validation ----------------"
+
+# Helper: assert JSON field for regression tests (reuses same TOTAL/PASS/FAIL counters)
+assert_json_field() {
+  local label="$1"
+  local json="$2"
+  local field="$3"
+  local expected="$4"
+
+  TOTAL=$((TOTAL + 1))
+
+  local actual
+  actual=$(echo "$json" | jq -r "$field" 2>/dev/null)
+
+  if [ "$expected" = "$actual" ]; then
+    printf "  PASS %-28s\n" "$label:"
+    PASS_COUNT=$((PASS_COUNT + 1))
+  else
+    printf "  FAIL %-28s expected=%s got=%s\n" "$label:" "$expected" "$actual"
+    FAIL_COUNT=$((FAIL_COUNT + 1))
+  fi
+}
+
+# Regression 1: Dynamic version in setup.py should be rejected (not a semver literal)
+TMPDIR_DYN=$(mktemp -d)
+cleanup_dyn() { rm -rf "$TMPDIR_DYN"; }
+trap cleanup_dyn EXIT
+
+cat > "$TMPDIR_DYN/setup.py" << 'PYEOF'
+from setuptools import setup
+
+setup(
+    name="dynamic-version",
+    version=get_version(),
+    packages=["mypackage"],
+)
+PYEOF
+
+OUTPUT_DYN=$(cd "$TMPDIR_DYN" && bash "$DETECT_SCRIPT" 2>/dev/null)
+assert_json_field "dynamic version rejected" "$OUTPUT_DYN" '.versionSource' ""
+
+# Regression 2: build.gradle with Groovy-style version (no equals sign)
+TMPDIR_GROOVY=$(mktemp -d)
+cleanup_groovy() { rm -rf "$TMPDIR_GROOVY"; }
+trap cleanup_groovy EXIT
+
+cat > "$TMPDIR_GROOVY/build.gradle" << 'GREOF'
+plugins {
+    id 'java'
+}
+
+version '1.5.0'
+
+dependencies {
+}
+GREOF
+
+OUTPUT_GROOVY=$(cd "$TMPDIR_GROOVY" && bash "$DETECT_SCRIPT" 2>/dev/null)
+assert_json_field "groovy version detected" "$OUTPUT_GROOVY" '.currentVersion' "1.5.0"
+assert_json_field "groovy version source" "$OUTPUT_GROOVY" '.versionSource' "build.gradle"
+
+# Regression 3: build.gradle.kts with Kotlin DSL version
+TMPDIR_KTS=$(mktemp -d)
+cleanup_kts() { rm -rf "$TMPDIR_KTS"; }
+trap cleanup_kts EXIT
+
+cat > "$TMPDIR_KTS/build.gradle.kts" << 'KTSEOF'
+plugins {
+    kotlin("jvm") version "1.9.0"
+}
+
+version = "2.0.0"
+
+dependencies {
+}
+KTSEOF
+
+OUTPUT_KTS=$(cd "$TMPDIR_KTS" && bash "$DETECT_SCRIPT" 2>/dev/null)
+assert_json_field "kotlin dsl version detected" "$OUTPUT_KTS" '.currentVersion' "2.0.0"
+assert_json_field "kotlin dsl version source" "$OUTPUT_KTS" '.versionSource' "build.gradle.kts"
+
+echo ""
 echo "  =================================================="
 printf "  Results: %d/%d passed\n" "$PASS_COUNT" "$TOTAL"
 
