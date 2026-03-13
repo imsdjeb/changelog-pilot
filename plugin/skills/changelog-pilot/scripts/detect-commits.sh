@@ -78,7 +78,7 @@ fi
 # --- List commits as JSON array (using jq for safe encoding) ---
 COMMITS_JSON="[]"
 
-while IFS='|' read -r hash subject author email date; do
+while IFS=$'\x1e' read -r hash subject author email date; do
   [ -z "$hash" ] && continue
 
   COMMITS_JSON=$(echo "$COMMITS_JSON" | jq \
@@ -88,7 +88,7 @@ while IFS='|' read -r hash subject author email date; do
     --arg e "$email" \
     --arg d "$date" \
     '. + [{hash:$h, subject:$s, author:$a, email:$e, date:$d}]')
-done < <(git log "$RANGE" --format="%H|%s|%an|%ae|%aI" 2>/dev/null)
+done < <(git log "$RANGE" --format="%H%x1e%s%x1e%an%x1e%ae%x1e%aI" 2>/dev/null)
 
 # --- Output (using jq for safe encoding) ---
 jq -n \

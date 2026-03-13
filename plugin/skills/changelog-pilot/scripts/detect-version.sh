@@ -58,7 +58,7 @@ fi
 # --- Cargo.toml ---
 if [ -f "Cargo.toml" ]; then
   VER=$(grep -E '^version' Cargo.toml 2>/dev/null | head -1 | sed -E 's/^version[[:space:]]*=[[:space:]]*"([^"]*)".*$/\1/')
-  if [ -n "$VER" ]; then
+  if [ -n "$VER" ] && echo "$VER" | grep -qE '^[0-9]+\.[0-9]+'; then
     add_file "Cargo.toml" "$VER"
     if [ -z "$CURRENT_VERSION" ]; then
       CURRENT_VERSION="$VER"
@@ -70,7 +70,7 @@ fi
 # --- pyproject.toml ---
 if [ -f "pyproject.toml" ]; then
   VER=$(grep -E '^version' pyproject.toml 2>/dev/null | head -1 | sed -E 's/^version[[:space:]]*=[[:space:]]*"([^"]*)".*$/\1/')
-  if [ -n "$VER" ]; then
+  if [ -n "$VER" ] && echo "$VER" | grep -qE '^[0-9]+\.[0-9]+'; then
     add_file "pyproject.toml" "$VER"
     if [ -z "$CURRENT_VERSION" ]; then
       CURRENT_VERSION="$VER"
@@ -82,7 +82,7 @@ fi
 # --- setup.py ---
 if [ -f "setup.py" ]; then
   VER=$(grep -E "version=" setup.py 2>/dev/null | head -1 | sed -E "s/.*version=['\"]([^'\"]*)['\"].*/\1/")
-  if [ -n "$VER" ]; then
+  if [ -n "$VER" ] && echo "$VER" | grep -qE '^[0-9]+\.[0-9]+'; then
     add_file "setup.py" "$VER"
     if [ -z "$CURRENT_VERSION" ]; then
       CURRENT_VERSION="$VER"
@@ -93,8 +93,8 @@ fi
 
 # --- setup.cfg ---
 if [ -f "setup.cfg" ]; then
-  VER=$(grep -E '^version' setup.cfg 2>/dev/null | head -1 | sed -E 's/^version[[:space:]]*=[[:space:]]*(.*)/\1/')
-  if [ -n "$VER" ]; then
+  VER=$(grep -E '^version' setup.cfg 2>/dev/null | head -1 | sed -E 's/^version[[:space:]]*=[[:space:]]*(.*[^[:space:]])[[:space:]]*/\1/')
+  if [ -n "$VER" ] && echo "$VER" | grep -qE '^[0-9]+\.[0-9]+'; then
     add_file "setup.cfg" "$VER"
     if [ -z "$CURRENT_VERSION" ]; then
       CURRENT_VERSION="$VER"
@@ -120,7 +120,7 @@ done
 for gemspec in *.gemspec; do
   [ -f "$gemspec" ] || continue
   VER=$(grep -E '\.version' "$gemspec" 2>/dev/null | head -1 | sed -E "s/.*=[[:space:]]*['\"]([^'\"]*)['\"].*/\1/")
-  if [ -n "$VER" ]; then
+  if [ -n "$VER" ] && echo "$VER" | grep -qE '^[0-9]+\.[0-9]+'; then
     add_file "$gemspec" "$VER"
     if [ -z "$CURRENT_VERSION" ]; then
       CURRENT_VERSION="$VER"
@@ -174,8 +174,8 @@ fi
 # --- build.gradle / build.gradle.kts ---
 for gradle_file in build.gradle build.gradle.kts; do
   [ -f "$gradle_file" ] || continue
-  VER=$(grep -E "^version" "$gradle_file" 2>/dev/null | head -1 | sed -E "s/^version[[:space:]]*=[?[[:space:]]*['\"]([^'\"]*)['\"].*/\1/")
-  if [ -n "$VER" ]; then
+  VER=$(grep -E "^version" "$gradle_file" 2>/dev/null | head -1 | sed -E "s/^version[[:space:]]*=?[[:space:]]*['\"]([^'\"]*)['\"].*/\1/")
+  if [ -n "$VER" ] && echo "$VER" | grep -qE '^[0-9]+\.[0-9]+'; then
     add_file "$gradle_file" "$VER"
     if [ -z "$CURRENT_VERSION" ]; then
       CURRENT_VERSION="$VER"
