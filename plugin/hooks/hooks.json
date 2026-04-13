@@ -1,16 +1,15 @@
 {
-  "hooks": [
-    {
-      "event": "PostToolUse",
-      "matcher": {
-        "tool_name": "Write|Edit"
-      },
-      "hooks": [
-        {
-          "type": "command",
-          "command": "file=\"$TOOL_INPUT_FILE_PATH\"; basename_f=$(basename \"$file\"); if [ \"$basename_f\" = \"CHANGELOG.md\" ]; then echo \"📝 CHANGELOG.md was modified.\"; echo \"💡 Run /changelog-pilot:preview to verify it matches the actual commits.\"; fi"
-        }
-      ]
-    }
-  ]
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=\"$TOOL_INPUT_FILE_PATH\"; basename_f=$(basename \"$file\"); if [ \"$basename_f\" = \"CHANGELOG.md\" ]; then echo \"CHANGELOG.md was modified.\"; echo \"Run /changelog-pilot:preview to verify it matches the actual commits.\"; fi"
+          }
+        ]
+      }
+    ]
+  }
 }
